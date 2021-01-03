@@ -1,0 +1,190 @@
+---
+title: "tCPOE Calculations"
+author: "Michael Egle"
+date: "10/16/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(modelr)
+```
+
+
+First load in the metadata
+```{r}
+playinfo <- read_csv("plays.csv")
+gameinfo <- read_csv("games.csv")
+playerinfo <- read_csv("players.csv")
+receivers <- read_csv("targetedReciever.csv")
+```
+
+These event types will be useful in determining the ball's position at important points during the play
+```{r}
+pass_arrival_events <- c("pass_outcome_incomplete",
+                         "pass_arrived",
+                         "pass_outcome_intercepted",
+                         "pass_outcome_caught",
+                         "pass_outcome_touchdown")
+```
+
+```{r}
+pass_release_events <- c("pass_forward",
+                         "pass_shovel")
+```
+
+Flatten the data a little bit. We want just one observation per play to train our model
+```{r}
+train <- data.frame()
+
+for (i in 1:17)
+{
+  file_name <- paste0("week", i, ".csv")
+  
+  week <- read_csv(file_name)
+  
+  
+  week <- week %>%
+    distinct()
+  
+  if(i == 3)
+  {
+    week <- week %>%
+      filter(!(gameId == 2018092304 & playId == 1687))
+  }
+  
+  if(i == 6)
+  {
+    week <- week %>%
+      filter(!(gameId == 2018101410 & playId == 431))
+  }
+  
+  if(i == 9)
+  {
+    week <- week %>%
+      filter(!(gameId == 2018110410 & playId == 3640))
+  }
+  
+  if(i == 10)
+  {
+    week <- week %>%
+      filter(!(gameId == 2018111106 & playId == 2650))
+  }
+  
+  week <- week %>%
+    inner_join(playinfo) %>%
+    inner_join(gameinfo) %>%
+    inner_join(receivers) %>%
+    mutate(team = ifelse(team == "home", homeTeamAbbr, visitorTeamAbbr))
+  
+  week <- week %>%
+    group_by(gameId, playId) %>%
+    mutate(spike = sum(event == "qb_spike") > 0,
+           off_players = sum(team == possessionTeam & displayName != "Football"),
+           def_players = sum(team != possessionTeam & displayName != "Football")) %>%
+    filter(!spike) %>%
+    select(-spike) %>%
+    ungroup() %>%
+    filter(off_players > 0 & def_players > 0)
+  
+  week <- week %>%
+    group_by(gameId, playId) %>%
+    mutate(ball_in_play_release = sum(displayName == "Football" & event %in% pass_release_events) > 0) %>%
+    filter(ball_in_play_release) %>%
+    mutate(x_ball_start = x[displayName == "Football" & event %in% pass_release_events],
+           y_ball_start = y[displayName == "Football" & event %in% pass_release_events],
+           ball_in_play_arrival = sum(displayName == "Football" & event %in% pass_arrival_events) > 0) %>%
+    filter(ball_in_play_arrival) %>%
+    mutate(arrival_frame = max(frameId[event %in% pass_arrival_events]),
+           x_ball_end = x[displayName == "Football" & frameId == arrival_frame],
+           y_ball_end = y[displayName == "Football" & frameId == arrival_frame],
+           geom_air_yards = sqrt((x_ball_end - x_ball_start)^2 + (y_ball_end - y_ball_start)^2),
+           max_ball_speed = max(s[displayName == "Football"]))
+  
+  week_arrive <- week %>%
+    filter(frameId == arrival_frame) %>%
+    mutate(is_intended_receiver = nflId == targetNflId,
+           is_intended_receiver = ifelse(is.na(is_intended_receiver), F, is_intended_receiver))
+  
+  week_arrive <- week_arrive %>%
+    filter(!is.na(targetNflId)) %>%
+    group_by(gameId, playId) %>%
+    mutate(found_receiver = sum(is_intended_receiver) > 0) %>%
+    filter(found_receiver) %>%
+    mutate(wr_x = x[is_intended_receiver],
+           wr_y = y[is_intended_receiver],
+           distance_to_wr = sqrt((wr_x - x)^2 + (wr_y - y)^2),
+           ball_wr_distance = sqrt((wr_x - x_ball_end)^2 + (wr_y - y_ball_end)^2),
+           distance_to_ball = sqrt((x_ball_end - x)^2 + (y_ball_end - y)^2),
+           bound_wr_distance = min(wr_x, 120 - wr_x, wr_y, 53.333 - wr_y)) %>%
+    filter(def_players > 0 & off_players > 0) %>% # some plays don't have any off or def players
+    mutate(min_def_distance = min(distance_to_wr[team != possessionTeam & displayName != "Football"]),
+           nearest_def = displayName[distance_to_wr == min_def_distance]) %>%
+    filter(displayName == nearest_def) %>%
+    mutate(complete = ifelse(passResult == "C", 1, 0)) %>%
+    mutate(ab.x = x - x_ball_end,
+         ab.y = y - y_ball_end,
+         bc.x = wr_x - x,
+         bc.y = wr_y - y,
+         ab = sqrt(ab.x^2 + ab.y^2),
+         bc = sqrt(bc.x^2 + bc.y^2),
+         theta = acos(((ab.x * bc.x) + (ab.y * bc.y)) / (ab * bc)),
+         theta = ifelse(theta > pi, theta - pi, theta)) %>% # Have the angles go from [0, pi)
+    select(gameId, playId, nflId, complete, nearest_def, distance_to_wr, distance_to_ball,
+           ball_wr_distance, geom_air_yards, max_ball_speed, team, numberOfPassRushers, theta,
+           epa, bound_wr_distance, targetNflId)
+  
+  train <- train %>%
+    bind_rows(week_arrive)
+  
+  print(paste("Week", i, "completed."))
+}
+```
+
+```{r}
+cpoe_model <- glm(complete ~ distance_to_wr + theta + distance_to_ball + ball_wr_distance +
+                    geom_air_yards + max_ball_speed + bound_wr_distance,
+                  data = train,
+                  family = "binomial")
+```
+
+```{r}
+summary(cpoe_model)
+```
+
+Train the model
+```{r}
+train <- train %>%
+  add_predictions(cpoe_model, var = "xcomp", type = "response") %>%
+  mutate(cpoe = complete - xcomp)
+```
+
+Aggregate the train dataframe down to the player level. Feel free to mess around with the parameters of this chunk as you wish
+```{r}
+train %>%
+  filter(distance_to_wr < 5) %>%
+  inner_join(playinfo) %>%
+  filter(!is.na(cpoe)) %>%
+  filter(cpoe < 0.99) %>%
+  group_by(nflId) %>%
+  summarize(name = head(nearest_def, 1),
+            team = tail(team, 1),
+            tCPOE = mean(cpoe),
+            targets = n(),
+            catches = sum(complete),
+            EPA = mean(epa),
+            mean_angle = mean(theta)) %>%
+  arrange(tCPOE) %>%
+  filter(targets > 20) %>%
+  arrange(tCPOE) %>%
+  ungroup() -> secondary
+```
+
+Export to csv
+```{r}
+write_csv(secondary, "secondary.csv")
+```
