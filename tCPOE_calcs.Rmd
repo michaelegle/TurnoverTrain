@@ -163,7 +163,7 @@ train <- train %>%
   mutate(cpoe = complete - xcomp)
 ```
 
-Aggregate the train dataframe down to the player level. Feel free to mess around with the parameters of this chunk as you wish
+Aggregate the train dataframe down to the player level. Feel free to mess around with the parameters of this chunk as you wish. I'd recommend filtering to a minimum of 20 targets, however this line is not currently included in the code.
 ```{r}
 train %>%
   filter(distance_to_wr < 5) %>%
@@ -176,10 +176,7 @@ train %>%
             tCPOE = mean(cpoe),
             targets = n(),
             catches = sum(complete),
-            EPA = mean(epa),
-            mean_angle = mean(theta)) %>%
-  arrange(tCPOE) %>%
-  filter(targets > 20) %>%
+            EPA = mean(epa)) %>%
   arrange(tCPOE) %>%
   ungroup() -> secondary
 ```
