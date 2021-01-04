@@ -292,8 +292,8 @@ closest_wr <- function(frame){
     ) %>% 
     group_by(gameId, playId, frameId, wr) %>% 
     summarise(
-      closest_dist = min(pythag_dist),
-      closest = db[pythag_dist == closest_dist],
+      separation = min(pythag_dist),
+      closest = db[pythag_dist == separation],
       closest_x = db_x[db == closest],
       closest_y = db_y[db == closest],
       closest_s = db_s[db == closest],
@@ -360,7 +360,7 @@ train <- arrival[ind == 1,] #80%
 test <- arrival[ind == 2,] #20%
 
 #Simple logistic regression
-naive <- glm(completed ~ closest_dist + dist + theta + sideline_dist + proj_s_per, family = "binomial", data = train)
+naive <- glm(completed ~ separation + dist + theta + sideline_dist + proj_s_per, family = "binomial", data = train)
 summary(naive)
 
 ncomp <- roc(test$completed, predict(naive, newdata = test))
@@ -376,12 +376,23 @@ players <- all %>% group_by(closest) %>%
   summarise(
     frames = n(), 
     xcomp = mean(proj_comp_percent, na.rm = T),
-    avg_sep = mean(closest_dist, na.rm = T),
+    avg_sep = mean(separation, na.rm = T),
     avg_downfield = mean(dist, na.rm = T),
     avg_leverage = mean(theta, na.rm = T),
     avg_dir_speed = mean(proj_s_per, na.rm = T),
     team = defensiveTeam,
     snaps = n_distinct(playId),
     games = n_distinct(gameId)
-    ) %>% distinct()
-
+    ) %>% 
+  inner_join(players_nfl %>% rename("closest" = "displayName") %>% select(closest, position),
+             by = c('closest')) %>% distinct() %>% 
+  mutate(
+    pos_category = case_when(
+      (position == 'ILB' | position == 'LB' | position == 'MLB' | position == 'OLB') ~ 'LB',
+      (position == 'DB' | position == 'FS' | position == 'S' | position == 'SS') ~ 'S',
+      (position == 'CB') ~ 'CB',
+      TRUE ~ 'DL/Offensive Player'
+    )
+  ) 
+  
+write.csv(players, 'xcomp_vals.csv')
