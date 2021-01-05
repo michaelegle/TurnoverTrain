@@ -8,4 +8,4 @@ This is the file used to create the Targeted Completion Percentage Over Expectat
 This is the script used to create the Excpected Completion Percentage per Frame (xComp) for each defender. It creates the xcomp_vals.csv file which contains the xComp (as well as averages of several other values which are used in the model) for every player which was covering someone for at least a single frame. A minimum filter can easily be altered in the code. This file and tCPOE_calcs.Rmd can be run in either order. 
 
 # Notes
-- Any questions regarding the code can be shared with any of the three authors listed above, we're all available on Twitter (Max at (@mnpykings)[https://twitter.com/mnpykings], Michael at (@deceptivespeed_)[https://twitter.com/deceptivespeed_], and Conor at (@ConorMcQ5)[https://twitter.com/ConorMcQ5]).
+- Any questions regarding the code can be shared with any of the three authors listed above, we're all available on Twitter (Max at [@mnpykings](https://twitter.com/mnpykings), Michael at [@deceptivespeed](https://twitter.com/deceptivespeed_), and Conor at [@ConorMcQ5](https://twitter.com/ConorMcQ5)).
