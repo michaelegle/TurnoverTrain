@@ -1,5 +1,6 @@
 library(tidyverse)
 library(pROC)
+library(ggplot2)
 
 #These are the supplemental datasets supplied by the NFL
 games <- read.csv("games.csv")
@@ -206,10 +207,6 @@ for(i in 1:17){
   #comment out this line if you want to animate a given play
   df_merged <- df_merged %>% filter(sideOfBall == 'offense' & position != 'QB')
   
-  df_merged <- df_merged %>% 
-    mutate(
-      s_diff = closest_s - s
-    )
   
   df_merged <- df_merged %>% 
     select(
@@ -317,7 +314,7 @@ closest_wr <- function(frame){
       wr_fb_dist = sqrt((wr_x - fb_x)^2 + (wr_y - fb_y)^2),
       wr_db_dist = sqrt((wr_x - closest_x)^2 + (wr_y - closest_y)^2),
       db_fb = sqrt((closest_x - fb_x)^2 + (closest_y - fb_y)^2),
-      theta_fb_db_wr = acos((((closest_x - fb_x) * (closest_x - wr_x)) + ((closest_y - fb_y) * (closest_y - wr_y)))/(db_fb * wr_db_dist)),
+      theta_fb_db_wr = acos((((-closest_x + fb_x) * (closest_x - wr_x)) + ((-closest_y + fb_y) * (closest_y - wr_y)))/(db_fb * wr_db_dist)),
       theta_fb_db_wr = (180/pi)*ifelse(theta_fb_db_wr > pi, theta_fb_db_wr - pi, theta_fb_db_wr)
     ) %>%
     ungroup() %>%
@@ -396,3 +393,10 @@ players <- all %>% group_by(closest) %>%
   ) 
   
 write.csv(players, 'xcomp_vals.csv')
+
+specific_play <- all %>% filter(gameId == 2018121600 & playId == 2295) %>% group_by(closest, frameId) %>% summarise(xcomp = mean(proj_comp_percent))
+
+ggplot(data = specific_play)+
+  geom_line(mapping = aes(x = frameId, y = xcomp, color = closest))
+
+ggsave("spec_play.png", width = 13, height = 7)
